@@ -59,10 +59,10 @@ BEGIN
         FROM tmp_duprows t
         WHERE r.athlete_id = t.id AND t.id <> t.keep_id;
 
-        -- delete duplicate athlete rows (keep the keep_id)
-        DELETE FROM athletes a
-        USING tmp_duprows t
-        WHERE a.id = t.id AND t.id <> t.keep_id;
+    -- delete duplicate athlete rows (keep the keep_id)
+    DELETE FROM athletes a
+    USING tmp_duprows t
+    WHERE a.id = t.id AND t.id <> t.keep_id;
 
         -- drop temp table explicitly (will be dropped on commit too)
         DROP TABLE IF EXISTS tmp_duprows;
@@ -96,6 +96,22 @@ CREATE TABLE IF NOT EXISTS medals (
     medal_type TEXT NOT NULL CHECK (medal_type IN ('Gold','Silver','Bronze')),
     UNIQUE (result_id)
 );
+
+    END IF;
+END$$;
+
+-- Create unique index to avoid future duplicates (case-insensitive name + team)
+-- NOTE: creating a unique index will fail if duplicates still exist. We attempt to
+-- dedupe above; if duplicates remain for some reason, do not fail the script:
+DO $$
+BEGIN
+    BEGIN
+        EXECUTE 'CREATE UNIQUE INDEX IF NOT EXISTS athletes_name_team_idx ON athletes (lower(name), lower(COALESCE(team, '''')));';
+    EXCEPTION WHEN unique_violation THEN
+        -- If there is still a unique_violation, leave the index creation to manual resolution
+        RAISE NOTICE 'Unique index creation failed due to remaining duplicates; please resolve manually';
+    END;
+END$$;
 
 COMMIT;
 
