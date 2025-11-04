@@ -37,3 +37,26 @@ Notes sur les rôles / privilèges
 Prochaines options
 - Normaliser davantage les colonnes (ex: splitter `team` vs `noc`) ou ajouter indexes.
 - Ajout de script pour revocation/gestion des privilèges CLI.
+
+Migration des champs JSON `extra` -> colonnes normales
+-------------------------------------------------
+Si vos données ont été stockées dans la colonne `extra` (JSONB), j'ai ajouté un petit script
+`database/migrate_extra.py` qui extrait les champs courants présents dans `results.extra`
+et les place dans des colonnes dédiées de la table `athletes` et `results` quand celles-ci
+sont NULL.
+
+Ce que fait le script:
+- ajoute `athletes.profile_url`, `athletes.bio`, `athletes.games_participations` si nécessaires
+- pour chaque ligne `results` avec `extra` non NULL: met à jour `athletes` (name/profile_url/bio/age)
+	et met à jour `results.sport`, `results.event`, `results.medal` à partir des clés comme
+	`discipline_title`, `event_title`, `medal_type` si ces colonnes sont vides
+
+Exécution (après sauvegarde de la base):
+
+```powershell
+python database\migrate_extra.py
+```
+
+Le script est conservateur : il ne remplace pas les valeurs déjà présentes, il ne fait que remplir
+les colonnes NULL à partir des données trouvées dans `extra`.
+
