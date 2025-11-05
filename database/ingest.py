@@ -2,7 +2,15 @@ from pathlib import Path
 import json
 import xml.etree.ElementTree as ET
 from bs4 import BeautifulSoup
-from db import get_conn, create_tables_from_sql, insert_host, get_or_create_athlete, insert_result, insert_medal_if_any
+from db import (
+    get_conn,
+    create_tables_from_sql,
+    insert_host,
+    get_or_create_athlete,
+    insert_result,
+    insert_medal_if_any,
+    ensure_host_exists
+)
 from datetime import datetime
 import pandas as pd
 import re
@@ -73,161 +81,174 @@ def ingest_hosts(conn, path: Path):
             insert_host(conn, host)
 
 
-def ingest_athletes_and_results(conn, path: Path):
-    print('Ingesting athletes/results from', path)
+# --- NEW: Clean ingestion of athlete metadata JSON ---
+def ingest_athletes_json(conn, path: Path):
+    print('Ingesting base athlete data from', path)
     text = path.read_text(encoding='utf-8')
-    data = None
     try:
         data = json.loads(text)
-    except Exception:
-        data = []
-        for line in text.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                data.append(json.loads(line))
-            except Exception:
-                pass
+    except Exception as e:
+        print('Error parsing JSON:', e)
+        return
 
-    if not data:
-        print('No JSON data parsed from', path)
+    if not isinstance(data, list):
+        print('Invalid JSON structure: expected list of athletes')
         return
 
     total = 0
-    skipped = 0
     inserted = 0
+    skipped = 0
+
     for rec in data:
         total += 1
-        name = rec.get('Name') or rec.get('name') or rec.get('Athlete') or rec.get('athlete')
-        if not name:
-            first = rec.get('First Name') or rec.get('FirstName') or rec.get('firstname')
-            last = rec.get('Last Name') or rec.get('LastName') or rec.get('lastname')
-            if first or last:
-                name = ' '.join([p for p in (first, last) if p])
-        if not name:
-            name = rec.get('athlete_full_name') or rec.get('full_name') or rec.get('athleteName')
+        name = rec.get('athlete_full_name')
+        if not name or len(name.strip()) < 2:
+            skipped += 1
+            continue
 
-        participant_type = rec.get('participant_type') or rec.get('participantType')
-        if not name and participant_type and participant_type.lower().startswith('gameteam'):
-            name = rec.get('participant_title') or rec.get('team') or rec.get('country_name') or rec.get('participant')
-
-        athlete = {
-            'ref_id': rec.get('ID') or rec.get('Id') or rec.get('id') or None,
-            'name': name,
-            'sex': rec.get('Sex') or rec.get('sex') or rec.get('Gender'),
-            'age': safe_int(rec.get('Age')),
-            'height': rec.get('Height') or rec.get('height'),
-            'weight': rec.get('Weight') or rec.get('weight'),
-            'team': rec.get('Team') or rec.get('team') or rec.get('Country'),
-            'noc': rec.get('NOC') or rec.get('noc'),
-        }
-
-        if not athlete['age']:
-            birth_year = rec.get('athlete_year_birth') or rec.get('birth_year') or rec.get('year_of_birth')
-            year_field = rec.get('Year') or rec.get('year')
+        birth_year = rec.get('athlete_year_birth')
+        age = None
+        if birth_year:
             try:
-                if birth_year and year_field:
-                    athlete['age'] = safe_int(int(year_field) - int(birth_year))
+                age = datetime.now().year - int(birth_year)
             except Exception:
                 pass
 
-        if not athlete['name']:
-            skipped += 1
-            print('Warning: skipping athlete record with missing name; record keys:', list(rec.keys()))
-            continue
+        first_game = rec.get('first_game')
+        game_slug = None
+        if first_game:
+            parts = first_game.strip().split()
+            if len(parts) == 2:
+                city, year = parts
+                game_slug = f"{city.lower()}-{year}"
+                try:
+                    ensure_host_exists(conn, game_slug)
+                except Exception:
+                    pass
+
+        athlete = {
+            'ref_id': None,
+            'name': name.strip(),
+            'sex': None,
+            'age': age,
+            'height': None,
+            'weight': None,
+            'team': None,
+            'noc': None,
+        }
+
         try:
             athlete_id = get_or_create_athlete(conn, athlete)
-        except ValueError as e:
+            inserted += 1
+        except Exception as e:
             skipped += 1
-            print('Skipping athlete due to error:', e)
+            print(f"Skipping athlete {name} due to error: {e}")
             continue
-        inserted += 1
 
-        # Génération du slug
-        game_slug = generate_game_slug(rec)
+        # Mise à jour des infos additionnelles
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE athletes
+                SET profile_url = %s,
+                    bio = %s,
+                    games_participations = %s
+                WHERE id = %s
+            """, (
+                rec.get('athlete_url'),
+                rec.get('bio'),
+                rec.get('games_participations'),
+                athlete_id
+            ))
+        conn.commit()
 
-        res = {
-            'athlete_id': athlete_id,
-            'game_slug': game_slug,
-            'year': safe_int(rec.get('Year') or rec.get('year')),
-            'season': rec.get('Season') or rec.get('season'),
-            'city': rec.get('City') or rec.get('city'),
-            'sport': rec.get('Sport') or rec.get('sport'),
-            'event': rec.get('Event') or rec.get('event'),
-            'medal': rec.get('Medal') or rec.get('medal'),
-            'extra': {k: v for k, v in rec.items() if k not in [
-                'ID','Id','id','Name','name','Athlete','athlete','Sex','sex','Age','age','Height','height',
-                'Weight','weight','Team','team','NOC','noc','Games','games','Game','Year','year','Season',
-                'season','City','city','Sport','sport','Event','event','Medal','medal']}
-        }
-        result_id = insert_result(conn, res)
-        insert_medal_if_any(conn, result_id, athlete_id, game_slug, res.get('medal'))
-
-    print(f'athletes ingestion: total={total}, inserted={inserted}, skipped={skipped}')
+    print(f"JSON athletes ingestion complete: total={total}, inserted={inserted}, skipped={skipped}")
 
 
+# --- Ingest results HTML (standardized columns) ---
 def ingest_results_html(conn, path: Path):
     print('Ingesting results HTML from', path)
     html = path.read_text(encoding='utf-8')
     soup = BeautifulSoup(html, 'html.parser')
     table = soup.find('table')
-    rows = []
-    if table:
-        headers = []
-        thead = table.find('thead')
-        if thead:
-            headers = [th.get_text(strip=True) for th in thead.find_all('th')]
-        else:
-            first = table.find('tr')
-            if first:
-                headers = [th.get_text(strip=True) for th in first.find_all(['th', 'td'])]
-        for tr in table.find_all('tr'):
-            cells = [td.get_text(strip=True) for td in tr.find_all('td')]
-            if not cells:
-                continue
-            if headers and len(headers) == len(cells):
-                row = dict(zip(headers, cells))
-            else:
-                row = {f'col_{i}': v for i, v in enumerate(cells)}
-            rows.append(row)
-    else:
+    if not table:
         print('No table found in HTML')
+        return
 
-    for r in rows:
-        athlete = {
-            'ref_id': None,
-            'name': r.get('Name') or r.get('Athlete') or r.get('Athlete Name') or r.get('col_1') or r.get('athlete_full_name'),
-            'sex': r.get('Sex'),
-            'age': None,
-            'height': None,
-            'weight': None,
-            'team': r.get('Team') or r.get('Nation') or r.get('col_2'),
-            'noc': r.get('NOC')
-        }
-        if not athlete['name']:
-            print('Warning: skipping HTML row with missing athlete name; row keys:', list(r.keys()))
+    headers = [th.get_text(strip=True) for th in table.find_all('th')]
+    rows_data = []
+    for tr in table.find_all('tr')[1:]:
+        cells = [td.get_text(strip=True) for td in tr.find_all('td')]
+        if not cells or len(cells) != len(headers):
             continue
+        row = dict(zip(headers, cells))
+        rows_data.append(row)
+
+    INVALID_NAME_PATTERN = re.compile(
+        r'(?i)\b(men|women|mixed|relay|team|aerial|freestyle|cross|mogul|pipe|slopestyle|snowboard|ski|event)\b'
+    )
+
+    def looks_like_game_slug(val: str) -> bool:
+        return bool(val and re.match(r'^[a-z0-9]+(?:-[a-z0-9]+)+-\d{4}$', val))
+
+    inserted = 0
+    skipped = 0
+    for rec in rows_data:
+        name = rec.get('athlete_full_name') or rec.get('athletes') or rec.get('participant_title')
+        if not name or INVALID_NAME_PATTERN.search(name):
+            skipped += 1
+            continue
+
+        is_team = rec.get('participant_type') and 'TEAM' in rec.get('participant_type').upper()
+
+        if is_team:
+            team_val = rec.get('country_name') or rec.get('participant_title')
+            athlete = {
+                'name': team_val,
+                'team': team_val,
+                'noc': rec.get('country_3_letter_code') or rec.get('country_code'),
+                'ref_id': None,
+            }
+        else:
+            athlete = {
+                'name': name,
+                'team': rec.get('country_name'),
+                'noc': rec.get('country_3_letter_code') or rec.get('country_code'),
+                'ref_id': None,
+            }
+
         try:
             athlete_id = get_or_create_athlete(conn, athlete)
         except ValueError as e:
-            print('Skipping HTML row due to error creating athlete:', e)
+            print('Skipping invalid athlete:', e)
             continue
-        res = {
+
+        slug = rec.get('slug_game')
+        if slug:
+            try:
+                ensure_host_exists(conn, slug)
+            except Exception as e:
+                print(f"Host missing: {slug} ({e})")
+
+        result = {
             'athlete_id': athlete_id,
-            'game_slug': generate_game_slug(r),
+            'game_slug': slug,
             'year': None,
             'season': None,
             'city': None,
-            'sport': r.get('Sport') or r.get('col_3'),
-            'event': r.get('Event') or r.get('col_4'),
-            'medal': r.get('Medal') or r.get('col_5'),
-            'extra': r
+            'sport': rec.get('discipline_title'),
+            'event': rec.get('event_title'),
+            'medal': rec.get('medal_type'),
+            'extra': rec,
         }
-        result_id = insert_result(conn, res)
-        insert_medal_if_any(conn, result_id, athlete_id, res.get('game_slug'), res.get('medal'))
+
+        result_id = insert_result(conn, result)
+        insert_medal_if_any(conn, result_id, athlete_id, slug, rec.get('medal_type'))
+        inserted += 1
+
+    print(f'Results HTML ingestion complete: inserted={inserted}, skipped={skipped}')
 
 
+# --- Ingest medals XLSX (clean & consistent) ---
 def ingest_medals(conn, path: Path):
     print('Ingesting medals from', path)
     try:
@@ -236,20 +257,38 @@ def ingest_medals(conn, path: Path):
         print('Erreur de lecture Excel:', e)
         return
 
+    # Normaliser les colonnes
     df.columns = [c.strip().lower().replace(' ', '_') for c in df.columns]
 
     total = 0
     inserted = 0
+
     for _, row in df.iterrows():
         total += 1
-        athlete_name = row.get('athlete_name') or row.get('name')
-        noc = row.get('noc') or row.get('country')
-        game_slug = row.get('game_slug') or row.get('games')
-        medal_type = row.get('medal') or row.get('medal_type')
+
+        athlete_name = row.get('athlete_full_name') or row.get('athlete_name') or row.get('name')
+        noc = row.get('country_code') or row.get('noc') or row.get('country_3_letter_code') or row.get('country')
+        game_slug = row.get('slug_game') or row.get('game_slug') or row.get('games')
+        medal_type = row.get('medal_type') or row.get('medal') or row.get('medaltype')
 
         if not athlete_name or not medal_type:
             continue
 
+        # Nettoyage du dict pour JSON
+        clean_dict = {
+            k: (None if pd.isna(v) or str(v).strip().lower() in ['nan', 'na', 'none'] else v)
+            for k, v in row.to_dict().items()
+        }
+
+       # Vérification du nom d'athlète
+        if isinstance(athlete_name, float) or pd.isna(athlete_name):
+            # ignorer les lignes sans nom valide
+            continue
+        
+        athlete_name = str(athlete_name).strip()
+        if not athlete_name:
+            continue
+        
         athlete = {
             'ref_id': None,
             'name': athlete_name,
@@ -257,9 +296,11 @@ def ingest_medals(conn, path: Path):
             'age': None,
             'height': None,
             'weight': None,
-            'team': None,
-            'noc': noc
+            'team': clean_dict.get('participant_title') or clean_dict.get('country_name'),
+            'noc': noc,
         }
+        
+
         try:
             athlete_id = get_or_create_athlete(conn, athlete)
         except ValueError as e:
@@ -268,15 +309,16 @@ def ingest_medals(conn, path: Path):
 
         res = {
             'athlete_id': athlete_id,
-            'game_slug': game_slug or generate_game_slug(row),
+            'game_slug': game_slug or 'unknown',
             'year': safe_int(row.get('year')),
             'season': row.get('season'),
             'city': row.get('city'),
-            'sport': row.get('sport'),
-            'event': row.get('event'),
+            'sport': row.get('discipline_title') or row.get('sport'),
+            'event': row.get('event_title') or row.get('event'),
             'medal': medal_type,
-            'extra': row.to_dict()
+            'extra': clean_dict,
         }
+
         result_id = insert_result(conn, res)
         insert_medal_if_any(conn, result_id, athlete_id, res['game_slug'], medal_type)
         inserted += 1
@@ -284,6 +326,8 @@ def ingest_medals(conn, path: Path):
     print(f'medals ingestion: total={total}, inserted={inserted}')
 
 
+
+# --- Main orchestration ---
 def main():
     conn = get_conn()
     create_tables_from_sql(conn, SQL_INIT)
@@ -293,15 +337,15 @@ def main():
     results = DATASET / 'olympic_results.html'
     medals = DATASET / 'olympic_medals.xlsx'
 
-    if hosts.exists():
-        ingest_hosts(conn, hosts)
-    else:
-        print('Hosts file not found:', hosts)
+    # if hosts.exists():
+    #     ingest_hosts(conn, hosts)
+    # else:
+    #     print('Hosts file not found:', hosts)
 
-    if athletes.exists():
-        ingest_athletes_and_results(conn, athletes)
-    else:
-        print('Athletes file not found:', athletes)
+    # if athletes.exists():
+    #     ingest_athletes_json(conn, athletes)
+    # else:
+    #     print('Athletes file not found:', athletes)
 
     if results.exists():
         ingest_results_html(conn, results)

@@ -97,8 +97,6 @@ CREATE TABLE IF NOT EXISTS medals (
     UNIQUE (result_id)
 );
 
-    END IF;
-END$$;
 
 -- Create unique index to avoid future duplicates (case-insensitive name + team)
 -- NOTE: creating a unique index will fail if duplicates still exist. We attempt to

@@ -70,12 +70,26 @@ def main():
 
         # Build athlete dict. Do NOT store the URL in `ref_id` because
         # `athletes.ref_id` is an INTEGER in the schema. Keep URL in extra instead.
-        athlete = {
-            'name': athlete_full_name or participant_title,
-            'team': participant_title,
-            'noc': country_code or country_3,
-            'ref_id': None,
-        }
+        # Déterminer si c'est une équipe ou un individu
+        is_team = participant_type and 'TEAM' in participant_type.upper()
+        
+        if is_team:
+            # Enregistrement d'une équipe (ex: "United States team")
+            athlete = {
+                'name': participant_title or country_name,
+                'team': participant_title or country_name,
+                'noc': country_code or country_3,
+                'ref_id': None,
+            }
+        else:
+            # Enregistrement d'un individu (ex: "Elaine THOMPSON-HERAH")
+            athlete = {
+                'name': athlete_full_name,
+                'team': country_name,  # ou None si tu veux éviter tout mélange
+                'noc': country_code or country_3,
+                'ref_id': None,
+            }
+        
 
         # ensure host exists (guard against unexpected errors)
         if slug_game:

@@ -103,6 +103,202 @@ app.get(`${API_PREFIX}/medals`, async (req, res) => {
   } catch (err) { console.error(err); res.status(500).json({ error: 'internal_error' }); }
 });
 
+// GET /api/medalists?game_slug=&medal_type=&limit=&offset=
+app.get(`${API_PREFIX}/medalists`, async (req, res) => {
+  try {
+    const { game_slug, medal_type, only_individuals, only_teams, limit = 100, offset = 0 } = req.query;
+    const params = [];
+    // return medal_count as integer and include detailed medals array
+    let sql = `SELECT a.id, a.ref_id, a.name, a.sex, a.age, a.height, a.weight, a.team, a.noc,
+                      COUNT(m.id)::int AS medal_count,
+                      COALESCE(JSON_AGG(JSON_BUILD_OBJECT('id', m.id, 'game_slug', m.game_slug, 'medal_type', m.medal_type) ORDER BY m.id) FILTER (WHERE m.id IS NOT NULL), '[]') AS medals
+               FROM athletes a
+               JOIN medals m ON m.athlete_id = a.id`;
+    const where = [];
+    if (game_slug) { params.push(game_slug); where.push(`m.game_slug = $${params.length}`); }
+    if (medal_type) { params.push(medal_type); where.push(`m.medal_type ILIKE $${params.length}`); }
+    if (only_individuals === 'true') { where.push(`a.team IS NULL`); }
+    if (only_teams === 'true') { where.push(`a.team IS NOT NULL`); }
+    if (where.length) sql += ' WHERE ' + where.join(' AND ');
+    sql += ' GROUP BY a.id ORDER BY medal_count DESC, a.name';
+    params.push(limit); params.push(offset);
+    sql += ` LIMIT $${params.length-1} OFFSET $${params.length}`;
+    const { rows } = await db.query(sql, params);
+    res.json(rows);
+  } catch (err) { console.error(err); res.status(500).json({ error: 'internal_error' }); }
+});
+
+/**
+ * Helpers de normalisation pays
+ * On retire ' team', ' team #x' et/ou ' #x' en fin de chaîne, insensible à la casse.
+ * Puis TRIM pour nettoyer les espaces.
+ * On groupe par 'group_key' = (NOC si présent, sinon nom normalisé).
+ * NOTE: on garde NOC nul si absent (cas particuliers historiques).
+ */
+const COUNTRY_NORM_SQL = `
+TRIM(
+  REGEXP_REPLACE(
+    COALESCE(a.team, a.name),
+    '(?i)\\s*(team(\\s*#\\d+)?)\\s*$|\\s*#\\d+\\s*$',
+    ''
+  )
+)
+`;
+
+// GET /api/medal_countries?game_slug=&medal_type=&limit=&offset=
+app.get(`${API_PREFIX}/medal_countries`, async (req, res) => {
+  try {
+    const { game_slug, medal_type, limit = 100, offset = 0 } = req.query;
+    const params = [];
+    const where = [];
+
+    if (game_slug) { params.push(game_slug); where.push(`m.game_slug = $${params.length}`); }
+    if (medal_type) { params.push(medal_type); where.push(`m.medal_type ILIKE $${params.length}`); }
+
+    let sql = `
+      WITH base AS (
+        SELECT
+          ${COUNTRY_NORM_SQL} AS country_norm,
+          a.noc,
+          COALESCE(a.noc, ${COUNTRY_NORM_SQL}) AS group_key,
+          m.id AS medal_id,
+          m.game_slug,
+          m.medal_type
+        FROM athletes a
+        JOIN medals m ON m.athlete_id = a.id
+        WHERE (a.team IS NOT NULL OR a.noc IS NOT NULL)
+        ${where.length ? ' AND ' + where.join(' AND ') : ''}
+      )
+      SELECT
+        MIN(country_norm) AS country_name,
+        NULLIF(MAX(noc), '') AS noc,
+        SUM(CASE WHEN medal_type ILIKE 'Gold' THEN 1 ELSE 0 END)::int AS gold_count,
+        SUM(CASE WHEN medal_type ILIKE 'Silver' THEN 1 ELSE 0 END)::int AS silver_count,
+        SUM(CASE WHEN medal_type ILIKE 'Bronze' THEN 1 ELSE 0 END)::int AS bronze_count,
+        COUNT(*)::int AS medal_count,
+        COALESCE(
+          JSON_AGG(JSON_BUILD_OBJECT('id', medal_id, 'game_slug', game_slug, 'medal_type', medal_type) ORDER BY medal_id)
+          FILTER (WHERE medal_id IS NOT NULL),
+          '[]'
+        ) AS medals
+      FROM base
+      GROUP BY group_key
+      ORDER BY medal_count DESC, country_name
+      LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+    `;
+
+    params.push(limit, offset);
+    const { rows } = await db.query(sql, params);
+    res.json(rows);
+  } catch (err) { console.error(err); res.status(500).json({ error: 'internal_error' }); }
+});
+
+// GET /api/medal_countries/ranking?game_slug=&limit=&offset=
+// Returns countries ranked by total medals and counts per medal type (gold/silver/bronze)
+app.get(`${API_PREFIX}/medal_countries/ranking`, async (req, res) => {
+  try {
+    const { game_slug, medal_type, limit = 100, offset = 0 } = req.query;
+    const params = [];
+    const where = [];
+    if (game_slug) { params.push(game_slug); where.push(`m.game_slug = $${params.length}`); }
+    if (medal_type) { params.push(medal_type); where.push(`m.medal_type ILIKE $${params.length}`); }
+
+    let sql = `
+      WITH base AS (
+        SELECT
+          ${COUNTRY_NORM_SQL} AS country_norm,
+          a.noc,
+          COALESCE(a.noc, ${COUNTRY_NORM_SQL}) AS group_key,
+          m.medal_type
+        FROM athletes a
+        JOIN medals m ON m.athlete_id = a.id
+        WHERE (a.team IS NOT NULL OR a.noc IS NOT NULL)
+        ${where.length ? ' AND ' + where.join(' AND ') : ''}
+      )
+      SELECT
+        MIN(country_norm) AS country_name,
+        NULLIF(MAX(noc), '') AS noc,
+        SUM(CASE WHEN medal_type ILIKE 'Gold' THEN 1 ELSE 0 END)::int AS gold_count,
+        SUM(CASE WHEN medal_type ILIKE 'Silver' THEN 1 ELSE 0 END)::int AS silver_count,
+        SUM(CASE WHEN medal_type ILIKE 'Bronze' THEN 1 ELSE 0 END)::int AS bronze_count,
+        COUNT(*)::int AS medal_count
+      FROM base
+      GROUP BY group_key
+      ORDER BY medal_count DESC, country_name
+      LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+    `;
+
+    params.push(limit, offset);
+    const { rows } = await db.query(sql, params);
+    res.json(rows);
+  } catch (err) { console.error(err); res.status(500).json({ error: 'internal_error' }); }
+});
+
+// GET /api/medal_countries/totals?game_slug=
+// Returns per-country medal totals (gold/silver/bronze/total) and a global summary
+app.get(`${API_PREFIX}/medal_countries/totals`, async (req, res) => {
+  try {
+    const { game_slug, medal_type, limit = 100, offset = 0 } = req.query;
+
+    // --- Per-country aggregation with normalization & group_key
+    const perParams = [];
+    const perWhere = [];
+    if (game_slug) { perParams.push(game_slug); perWhere.push(`m.game_slug = $${perParams.length}`); }
+    if (medal_type) { perParams.push(medal_type); perWhere.push(`m.medal_type ILIKE $${perParams.length}`); }
+
+    let perSql = `
+      WITH base AS (
+        SELECT
+          ${COUNTRY_NORM_SQL} AS country_norm,
+          a.noc,
+          COALESCE(a.noc, ${COUNTRY_NORM_SQL}) AS group_key,
+          m.medal_type
+        FROM athletes a
+        JOIN medals m ON m.athlete_id = a.id
+        WHERE (a.team IS NOT NULL OR a.noc IS NOT NULL)
+        ${perWhere.length ? ' AND ' + perWhere.join(' AND ') : ''}
+      )
+      SELECT
+        MIN(country_norm) AS country_name,
+        NULLIF(MAX(noc), '') AS noc,
+        SUM(CASE WHEN medal_type ILIKE 'Gold' THEN 1 ELSE 0 END)::int AS gold_count,
+        SUM(CASE WHEN medal_type ILIKE 'Silver' THEN 1 ELSE 0 END)::int AS silver_count,
+        SUM(CASE WHEN medal_type ILIKE 'Bronze' THEN 1 ELSE 0 END)::int AS bronze_count,
+        COUNT(*)::int AS medal_count
+      FROM base
+      GROUP BY group_key
+      ORDER BY medal_count DESC, country_name
+      LIMIT $${perParams.length + 1} OFFSET $${perParams.length + 2}
+    `;
+    perParams.push(limit, offset);
+
+    // --- Global aggregation (identique, pas besoin de normaliser ici)
+    const globalWhereParts = ['(a.team IS NOT NULL OR a.noc IS NOT NULL)'];
+    const globalParams = [];
+    if (game_slug) { globalParams.push(game_slug); globalWhereParts.push(`m.game_slug = $${globalParams.length}`); }
+    if (medal_type) { globalParams.push(medal_type); globalWhereParts.push(`m.medal_type ILIKE $${globalParams.length}`); }
+
+    let globalSql = `
+      SELECT
+        SUM(CASE WHEN m.medal_type ILIKE 'Gold' THEN 1 ELSE 0 END)::int AS gold_count,
+        SUM(CASE WHEN m.medal_type ILIKE 'Silver' THEN 1 ELSE 0 END)::int AS silver_count,
+        SUM(CASE WHEN m.medal_type ILIKE 'Bronze' THEN 1 ELSE 0 END)::int AS bronze_count,
+        COUNT(m.id)::int AS total_medals
+      FROM medals m
+      JOIN athletes a ON m.athlete_id = a.id
+      WHERE ${globalWhereParts.join(' AND ')}
+    `;
+
+    const perRes = await db.query(perSql, perParams);
+    const globalRes = await db.query(globalSql, globalParams);
+
+    res.json({
+      countries: perRes.rows,
+      global: globalRes.rows[0] || { gold_count: 0, silver_count: 0, bronze_count: 0, total_medals: 0 }
+    });
+  } catch (err) { console.error(err); res.status(500).json({ error: 'internal_error' }); }
+});
+
 // health
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
