@@ -1,28 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { BarChart3, Globe, Medal, TrendingUp, Brain, Activity, ChevronRight, Award, Target } from 'lucide-react';
 import * as d3 from 'd3';
-
-// Mock Data
-const mockMedalsData = [
-  { country: 'USA', gold: 39, silver: 41, bronze: 33, total: 113, flag: '🇺🇸', gdp: 21000, code: 'USA' },
-  { country: 'Chine', gold: 38, silver: 32, bronze: 18, total: 88, flag: '🇨🇳', gdp: 14000, code: 'CHN' },
-  { country: 'Japon', gold: 27, silver: 14, bronze: 17, total: 58, flag: '🇯🇵', gdp: 5000, code: 'JPN' },
-  { country: 'Grande-Bretagne', gold: 22, silver: 21, bronze: 22, total: 65, flag: '🇬🇧', gdp: 2800, code: 'GBR' },
-  { country: 'Russie', gold: 20, silver: 28, bronze: 23, total: 71, flag: '🇷🇺', gdp: 1700, code: 'RUS' },
-  { country: 'Australie', gold: 17, silver: 7, bronze: 22, total: 46, flag: '🇦🇺', gdp: 1300, code: 'AUS' },
-  { country: 'Pays-Bas', gold: 10, silver: 12, bronze: 14, total: 36, flag: '🇳🇱', gdp: 900, code: 'NLD' },
-  { country: 'France', gold: 10, silver: 12, bronze: 11, total: 33, flag: '🇫🇷', gdp: 2600, code: 'FRA' },
-  { country: 'Allemagne', gold: 10, silver: 11, bronze: 16, total: 37, flag: '🇩🇪', gdp: 3800, code: 'DEU' },
-  { country: 'Italie', gold: 10, silver: 10, bronze: 20, total: 40, flag: '🇮🇹', gdp: 2000, code: 'ITA' }
-];
-
-const mockPredictions = [
-  { country: 'USA', predicted: 115, confidence: 92, flag: '🇺🇸' },
-  { country: 'Chine', predicted: 90, confidence: 88, flag: '🇨🇳' },
-  { country: 'France', predicted: 85, confidence: 85, flag: '🇫🇷' },
-  { country: 'Grande-Bretagne', predicted: 68, confidence: 82, flag: '🇬🇧' },
-  { country: 'Japon', predicted: 62, confidence: 80, flag: '🇯🇵' }
-];
+import { fetchTopMedals, fetchGDPvsMedals, fetchCountriesLocations, fetchHistoryMedals, fetchHosts, fetchGlobalStats } from './api';
 
 const historicalData = [
   { year: 2000, medals: 97 },
@@ -110,12 +89,12 @@ const D3LineChart = ({ data }) => {
       .attr("stroke", "#fff")
       .attr("stroke-width", 2)
       .style("cursor", "pointer")
-      .on("mouseenter", function(event, d) {
+      .on("mouseenter", function (event, d) {
         d3.select(this)
           .transition()
           .duration(200)
           .attr("r", 8);
-        
+
         svg.append("text")
           .attr("class", "tooltip")
           .attr("x", x(d.year))
@@ -126,12 +105,12 @@ const D3LineChart = ({ data }) => {
           .attr("font-weight", "bold")
           .text(`${d.medals} médailles`);
       })
-      .on("mouseleave", function() {
+      .on("mouseleave", function () {
         d3.select(this)
           .transition()
           .duration(200)
           .attr("r", 6);
-        
+
         svg.selectAll(".tooltip").remove();
       });
 
@@ -223,13 +202,13 @@ const D3ScatterPlot = ({ data }) => {
       .attr("stroke", "#fff")
       .attr("stroke-width", 2)
       .style("cursor", "pointer")
-      .on("mouseenter", function(event, d) {
+      .on("mouseenter", function (event, d) {
         d3.select(this)
           .transition()
           .duration(200)
           .attr("opacity", 1)
           .attr("stroke-width", 3);
-        
+
         const tooltip = svg.append("g")
           .attr("class", "tooltip");
 
@@ -253,13 +232,13 @@ const D3ScatterPlot = ({ data }) => {
 
         text.raise();
       })
-      .on("mouseleave", function() {
+      .on("mouseleave", function () {
         d3.select(this)
           .transition()
           .duration(200)
           .attr("opacity", 0.7)
           .attr("stroke-width", 2);
-        
+
         svg.selectAll(".tooltip").remove();
       });
 
@@ -396,7 +375,7 @@ const D3WorldMap = ({ data }) => {
           .style("pointer-events", "none")
           .text(country.flag);
 
-        g.on("mouseenter", function() {
+        g.on("mouseenter", function () {
           d3.select(this).select("circle:nth-child(2)")
             .transition()
             .duration(200)
@@ -413,15 +392,15 @@ const D3WorldMap = ({ data }) => {
             .attr("font-size", "14px")
             .text(`${country.country}: ${country.total}`);
         })
-        .on("mouseleave", function() {
-          d3.select(this).select("circle:nth-child(2)")
-            .transition()
-            .duration(200)
-            .attr("stroke-width", 2)
-            .attr("opacity", 0.8);
+          .on("mouseleave", function () {
+            d3.select(this).select("circle:nth-child(2)")
+              .transition()
+              .duration(200)
+              .attr("stroke-width", 2)
+              .attr("opacity", 0.8);
 
-          svg.selectAll(".tooltip").remove();
-        });
+            svg.selectAll(".tooltip").remove();
+          });
       }
     });
 
@@ -482,7 +461,77 @@ const D3WorldMap = ({ data }) => {
   );
 };
 
+const fmtInt = (val, locale = 'fr-FR') =>
+  Number.isFinite(Number(val)) ? Number(val).toLocaleString(locale) : '—';
+
+
 const App = () => {
+
+
+  const [medalsData, setMedalsData] = useState([]);
+  const [gdpMedals, setGdpMedals] = useState([]);
+  const [countryLocations, setCountryLocations] = useState([]);
+  const [historyData, setHistoryData] = useState([]);
+  const [loading, setLoading] = useState(true);
+  // Stats Globales
+  const [globalStats, setGlobalStats] = useState({
+    countries: 0,
+    totalMedals: 0,
+    editions: 0,
+  });
+
+
+
+
+  useEffect(() => {
+    async function loadData() {
+      setLoading(true);
+      try {
+        const [top, gdp, loc, hist, stats] = await Promise.all([
+          fetchTopMedals(10),
+          fetchGDPvsMedals(),
+          fetchCountriesLocations(),
+          fetchHistoryMedals('USA'), // exemple par défaut
+          fetchGlobalStats(),
+        ]);
+        setMedalsData(top);
+        setGdpMedals(gdp);
+        setCountryLocations(loc);
+        setHistoryData(hist);
+        setGlobalStats(stats);
+        console.log('✅ Données chargées avec succès');
+      } catch (err) {
+        console.error('❌ Erreur lors du chargement des données', err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadData();
+  }, []);
+
+  const [hosts, setHosts] = useState([]); // éditions depuis /api/hosts
+  const [filters, setFilters] = useState({
+    season: 'Summer',     // 'Summer' | 'Winter' | 'ALL'
+    gameSlug: '',         // beijing-2022, tokyo-2020, ...
+    medalType: 'ALL',     // 'ALL' | 'Gold' | 'Silver' | 'Bronze'
+    limit: 10,            // 10 | 20 | 50 | 9999
+  });
+
+  // charger les hosts au démarrage
+  useEffect(() => {
+    (async () => {
+      try {
+        const all = await fetchHosts();      // toutes saisons
+        setHosts(all);
+        // valeur par défaut : la plus récente Summer si dispo, sinon la 1ère
+        const defaultHost = all.find(h => h.game_season === 'Summer') || all[0];
+        setFilters(f => ({ ...f, gameSlug: defaultHost?.game_slug || '', season: defaultHost?.game_season || 'Summer' }));
+      } catch (e) {
+        console.error(e);
+      }
+    })();
+  }, []);
+
   const [activeTab, setActiveTab] = useState('overview');
   const [selectedCountry, setSelectedCountry] = useState(null);
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -505,12 +554,80 @@ const App = () => {
     }
   };
 
+
+
   // Notifications statiques
   const notifications = [
     { id: 1, type: 'success', message: 'Nouveau modèle IA entraîné avec succès', time: 'Il y a 2h', icon: '✅' },
     { id: 2, type: 'info', message: 'Mise à jour des données Paris 2024', time: 'Il y a 5h', icon: '📊' },
     { id: 3, type: 'warning', message: 'Analyse PIB en cours de traitement', time: 'Hier', icon: '⚠️' }
   ];
+
+  // --- fonction utilitaire pour classer les performances selon le PIB ---
+  const getPerformanceBadge = (gdpValue) => {
+    if (!gdpValue) {
+      return {
+        label: "Inconnue",
+        color: "bg-gray-100 text-gray-600",
+        emoji: "❔",
+      };
+    }
+
+    // on considère que gdpValue est déjà en Mds $
+    const gdp = Number(gdpValue);
+
+    if (gdp > 10000) {
+      return { label: "Excellente", color: "bg-green-100 text-green-700", emoji: "🟢" };
+    } else if (gdp > 3000) {
+      return { label: "Solide", color: "bg-yellow-100 text-yellow-700", emoji: "🟡" };
+    } else if (gdp > 1000) {
+      return { label: "Moyenne", color: "bg-orange-100 text-orange-700", emoji: "🟠" };
+    } else {
+      return { label: "Faible", color: "bg-red-100 text-red-700", emoji: "🔴" };
+    }
+  };
+
+  // --- Calcul des stats dynamiques ---
+  const statsCards = [
+    {
+      label: 'Pays analysés',
+      value: medalsData.length || 0,
+      icon: Globe,
+      color: 'blue',
+      bg: 'bg-blue-50',
+      iconBg: 'bg-blue-100',
+      textColor: 'text-blue-600',
+    },
+    {
+      label: 'Médailles totales',
+      value: medalsData.reduce((acc, c) => acc + (c.total || 0), 0).toLocaleString('fr-FR'),
+      icon: Award,
+      color: 'yellow',
+      bg: 'bg-yellow-50',
+      iconBg: 'bg-yellow-100',
+      textColor: 'text-yellow-600',
+    },
+    {
+      label: 'Éditions JO',
+      value: hosts.length || 0,
+      icon: Target,
+      color: 'green',
+      bg: 'bg-green-50',
+      iconBg: 'bg-green-100',
+      textColor: 'text-green-600',
+    },
+    {
+      label: 'Précision IA',
+      value: '94%', // tu pourras la calculer plus tard selon ton modèle
+      icon: Brain,
+      color: 'purple',
+      bg: 'bg-purple-50',
+      iconBg: 'bg-purple-100',
+      textColor: 'text-purple-600',
+    },
+  ];
+
+
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -527,7 +644,7 @@ const App = () => {
                 <p className="text-sm text-gray-500">Analyse & Prédiction des Jeux Olympiques</p>
               </div>
             </div>
-            
+
             {/* Section droite avec notifications et profil */}
             <div className="flex items-center space-x-4">
               {/* Badge IA */}
@@ -538,7 +655,7 @@ const App = () => {
 
               {/* Bouton Notifications */}
               <div className="relative">
-                <button 
+                <button
                   onClick={() => setShowNotifications(!showNotifications)}
                   className="relative p-2 hover:bg-gray-100 rounded-lg transition-colors"
                 >
@@ -573,7 +690,7 @@ const App = () => {
 
               {/* Profil utilisateur */}
               <div className="relative">
-                <button 
+                <button
                   onClick={() => setShowUserMenu(!showUserMenu)}
                   className="flex items-center space-x-3 hover:bg-gray-100 rounded-xl px-3 py-2 transition-colors"
                 >
@@ -675,11 +792,10 @@ const App = () => {
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center space-x-2 py-4 border-b-2 transition-all font-medium ${
-                    activeTab === tab.id
-                      ? 'border-blue-600 text-blue-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  }`}
+                  className={`flex items-center space-x-2 py-4 border-b-2 transition-all font-medium ${activeTab === tab.id
+                    ? 'border-blue-600 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                    }`}
                 >
                   <tab.icon className="w-5 h-5" />
                   <span>{tab.label}</span>
@@ -688,7 +804,7 @@ const App = () => {
             </div>
 
             {/* Bouton Filtres */}
-            <button 
+            <button
               onClick={() => setShowFilters(!showFilters)}
               className="flex items-center space-x-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
             >
@@ -701,50 +817,121 @@ const App = () => {
           {showFilters && (
             <div className="py-4 border-t border-gray-200 bg-gray-50">
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+
+                {/* SAISON */}
                 <div>
-                  <label className="block text-xs font-semibold text-gray-600 mb-2">ANNÉE</label>
-                  <select className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                    <option>2020 (Tokyo)</option>
-                    <option>2016 (Rio)</option>
-                    <option>2012 (Londres)</option>
-                    <option>2008 (Pékin)</option>
+                  <label className="block text-xs font-semibold text-gray-600 mb-2">SAISON</label>
+                  <select
+                    className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    value={filters.season}
+                    onChange={(e) => {
+                      const season = e.target.value;
+                      // on filtre localement la liste des hosts pour la saison choisie et on sélectionne la plus récente
+                      const options = hosts.filter(h => season === 'ALL' ? true : h.game_season === season);
+                      const latest = options[0];
+                      setFilters(f => ({ ...f, season, gameSlug: latest?.game_slug || '' }));
+                    }}
+                  >
+                    <option value="ALL">Toutes</option>
+                    <option value="Summer">Été (Summer)</option>
+                    <option value="Winter">Hiver (Winter)</option>
                   </select>
                 </div>
+
+                {/* ANNÉE / ÉDITION (depuis /api/hosts) */}
                 <div>
-                  <label className="block text-xs font-semibold text-gray-600 mb-2">CONTINENT</label>
-                  <select className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                    <option>Tous les continents</option>
-                    <option>🌍 Europe</option>
-                    <option>🌎 Amérique</option>
-                    <option>🌏 Asie</option>
-                    <option>🌍 Afrique</option>
-                    <option>🌏 Océanie</option>
+                  <label className="block text-xs font-semibold text-gray-600 mb-2">ÉDITION</label>
+                  <select
+                    className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    value={filters.gameSlug}
+                    onChange={(e) => setFilters(f => ({ ...f, gameSlug: e.target.value }))}
+                  >
+                    {hosts
+                      .filter(h => filters.season === 'ALL' ? true : h.game_season === filters.season)
+                      .map(h => (
+                        <option key={h.game_slug} value={h.game_slug}>
+                          {h.game_year} ({h.game_location})
+                        </option>
+                      ))}
                   </select>
                 </div>
+
+                {/* TYPE DE MÉDAILLE */}
                 <div>
                   <label className="block text-xs font-semibold text-gray-600 mb-2">TYPE DE MÉDAILLE</label>
-                  <select className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                    <option>Toutes les médailles</option>
-                    <option>🥇 Or uniquement</option>
-                    <option>🥈 Argent uniquement</option>
-                    <option>🥉 Bronze uniquement</option>
+                  <select
+                    className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    value={filters.medalType}
+                    onChange={(e) => setFilters(f => ({ ...f, medalType: e.target.value }))}
+                  >
+                    <option value="ALL">Toutes les médailles</option>
+                    <option value="Gold">🥇 Or uniquement</option>
+                    <option value="Silver">🥈 Argent uniquement</option>
+                    <option value="Bronze">🥉 Bronze uniquement</option>
                   </select>
                 </div>
+
+                {/* AFFICHAGE (limit) */}
                 <div>
                   <label className="block text-xs font-semibold text-gray-600 mb-2">AFFICHAGE</label>
-                  <select className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                    <option>Top 10</option>
-                    <option>Top 20</option>
-                    <option>Top 50</option>
-                    <option>Tous les pays</option>
+                  <select
+                    className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    value={String(filters.limit)}
+                    onChange={(e) => setFilters(f => ({ ...f, limit: Number(e.target.value) }))}
+                  >
+                    <option value="10">Top 10</option>
+                    <option value="20">Top 20</option>
+                    <option value="50">Top 50</option>
+                    <option value="9999">Tous les pays</option>
                   </select>
                 </div>
               </div>
+
               <div className="flex justify-end space-x-2 mt-4">
-                <button className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-200 rounded-lg transition-colors">
+                <button
+                  className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-200 rounded-lg transition-colors"
+                  onClick={() => {
+                    // reset sur la saison sélectionnée et 1ère édition dispo
+                    const options = hosts.filter(h => h.game_season === 'Summer');
+                    const latest = options[0] || hosts[0];
+                    setFilters({
+                      season: latest?.game_season || 'Summer',
+                      gameSlug: latest?.game_slug || '',
+                      medalType: 'ALL',
+                      limit: 10,
+                    });
+                  }}
+                >
                   Réinitialiser
                 </button>
-                <button className="px-4 py-2 text-sm bg-blue-600 text-white hover:bg-blue-700 rounded-lg transition-colors">
+
+                <button
+                  className="px-4 py-2 text-sm bg-blue-600 text-white hover:bg-blue-700 rounded-lg transition-colors"
+                  onClick={async () => {
+                    setLoading(true);
+                    try {
+                      // Recharge le Top pays selon les filtres
+                      const top = await fetchTopMedals({
+                        limit: filters.limit,
+                        gameSlug: filters.gameSlug || undefined,
+                        medalType: filters.medalType,
+                        order: 'total',
+                      });
+                      setMedalsData(top);
+
+                      // Historique : si on a un NOC sélectionné ensuite tu pourras adapter, ici on garde USA
+                      const hist = await fetchHistoryMedals('USA');
+                      setHistoryData(hist);
+
+                      // GDP vs Medals et Carte ne sont pas filtrés par année côté API (conception actuelle),
+                      // on les laisse tels quels. Si besoin on peut les filtrer client-side.
+                    } catch (e) {
+                      console.error(e);
+                    } finally {
+                      setLoading(false);
+                    }
+                  }}
+                >
                   Appliquer
                 </button>
               </div>
@@ -757,39 +944,86 @@ const App = () => {
       <main className="max-w-7xl mx-auto px-6 py-8">
         {activeTab === 'overview' && (
           <div className="space-y-6">
-            {/* Barre d'information avec stats rapides */}
-            <div className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-2xl p-6 text-white shadow-lg">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-2xl font-bold mb-2">🏆 Tokyo 2020</h2>
-                  <p className="text-blue-100">Du 23 juillet au 8 août 2021 • 339 épreuves • 11,656 athlètes</p>
+            {/* Barre d'information avec stats rapides (dynamique) */}
+            {(() => {
+              const current = hosts.find(h => h.game_slug === filters.gameSlug);
+              const title = current ? `🏆 ${current.game_name}` : '🏆 Jeux Olympiques';
+              const subtitle = current
+                ? `${current.game_season} • ${current.game_location} • ${current.game_year}`
+                : 'Historique 1896–2022';
+
+              // Petites métriques dynamiques à partir du tableau Top (approx)
+              const countriesCount = Math.min(medalsData.length, filters.limit);
+              const sportsCount = current ? (current.game_season === 'Summer' ? 33 : 7) : 33; // si tu veux quelque chose de plus juste, expose-le côté API
+              const medalsSum = medalsData.reduce((acc, c) => acc + (c.total || 0), 0);
+
+              return (
+                <div className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-2xl p-6 text-white shadow-lg">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h2 className="text-2xl font-bold mb-2">{title}</h2>
+                      <p className="text-blue-100">{subtitle}</p>
+                    </div>
+                    <div className="hidden md:flex items-center space-x-6">
+                      <div className="text-center">
+                        <p className="text-3xl font-bold">{countriesCount}</p>
+                        <p className="text-sm text-blue-100">Pays (affichés)</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-3xl font-bold">{sportsCount}</p>
+                        <p className="text-sm text-blue-100">Sports</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-3xl font-bold">{medalsSum}</p>
+                        <p className="text-sm text-blue-100">Médailles (somme Top)</p>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div className="hidden md:flex items-center space-x-6">
-                  <div className="text-center">
-                    <p className="text-3xl font-bold">206</p>
-                    <p className="text-sm text-blue-100">Pays</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-3xl font-bold">33</p>
-                    <p className="text-sm text-blue-100">Sports</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-3xl font-bold">1,028</p>
-                    <p className="text-sm text-blue-100">Médailles</p>
-                  </div>
-                </div>
-              </div>
-            </div>
+              );
+            })()}
+
 
             {/* Stats Cards */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
               {[
-                { label: 'Pays analysés', value: '206', icon: Globe, color: 'blue', bg: 'bg-blue-50', iconBg: 'bg-blue-100', textColor: 'text-blue-600' },
-                { label: 'Médailles totales', value: '1,028', icon: Award, color: 'yellow', bg: 'bg-yellow-50', iconBg: 'bg-yellow-100', textColor: 'text-yellow-600' },
-                { label: 'Éditions JO', value: '32', icon: Target, color: 'green', bg: 'bg-green-50', iconBg: 'bg-green-100', textColor: 'text-green-600' },
-                { label: 'Précision IA', value: '94%', icon: Brain, color: 'purple', bg: 'bg-purple-50', iconBg: 'bg-purple-100', textColor: 'text-purple-600' }
+                {
+                  label: "Pays analysés",
+                  value: globalStats.countries || "—",
+                  icon: Globe,
+                  bg: "bg-blue-50",
+                  iconBg: "bg-blue-100",
+                  textColor: "text-blue-600",
+                },
+                {
+                  label: "Médailles totales",
+                  value: fmtInt(globalStats?.totalMedals),
+                  icon: Award,
+                  bg: "bg-yellow-50",
+                  iconBg: "bg-yellow-100",
+                  textColor: "text-yellow-600",
+                },
+                {
+                  label: "Éditions JO",
+                  value: globalStats.editions || "—",
+                  icon: Target,
+                  bg: "bg-green-50",
+                  iconBg: "bg-green-100",
+                  textColor: "text-green-600",
+                },
+                {
+                  label: "Précision IA",
+                  value: "94%", // en attendant ton vrai modèle
+                  icon: Brain,
+                  bg: "bg-purple-50",
+                  iconBg: "bg-purple-100",
+                  textColor: "text-purple-600",
+                },
               ].map((stat, i) => (
-                <div key={i} className={`${stat.bg} rounded-2xl p-6 border border-gray-200 shadow-sm hover:shadow-md transition-all`}>
+                <div
+                  key={i}
+                  className={`${stat.bg} rounded-2xl p-6 border border-gray-200 shadow-sm hover:shadow-md transition-all`}
+                >
                   <div className="flex items-start justify-between">
                     <div>
                       <p className="text-sm font-medium text-gray-600 mb-1">{stat.label}</p>
@@ -801,6 +1035,7 @@ const App = () => {
                   </div>
                 </div>
               ))}
+
             </div>
 
             {/* Tableau des médailles */}
@@ -816,7 +1051,7 @@ const App = () => {
                   </div>
                 </div>
               </div>
-              
+
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead className="bg-gray-50">
@@ -831,8 +1066,8 @@ const App = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {mockMedalsData.map((item, index) => (
-                      <tr 
+                    {medalsData.map((item, index) => (
+                      <tr
                         key={index}
                         onClick={() => setSelectedCountry(item)}
                         className="hover:bg-gray-50 cursor-pointer transition-colors"
@@ -892,8 +1127,8 @@ const App = () => {
                   </button>
                 </div>
               </div>
-              <D3LineChart data={historicalData} />
-              
+              <D3LineChart data={historyData.length ? historyData : historicalData} />
+
               {/* Légende et insights */}
               <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="bg-green-50 rounded-lg p-4 border border-green-200">
@@ -973,14 +1208,14 @@ const App = () => {
                       <p className="text-xs text-gray-500">médailles</p>
                     </div>
                   </div>
-                  
+
                   <div className="space-y-2">
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-gray-600">Confiance du modèle</span>
                       <span className="font-bold text-green-600">{pred.confidence}%</span>
                     </div>
                     <div className="w-full bg-gray-100 rounded-full h-3 overflow-hidden">
-                      <div 
+                      <div
                         className="bg-gradient-to-r from-green-500 to-green-600 h-full rounded-full transition-all duration-1000"
                         style={{ width: `${pred.confidence}%` }}
                       ></div>
@@ -1023,8 +1258,8 @@ const App = () => {
                 </h2>
                 <p className="text-sm text-gray-500 mt-1">Corrélation entre richesse économique et performances sportives - D3.js</p>
               </div>
-              
-              <D3ScatterPlot data={mockMedalsData} />
+
+              <D3ScatterPlot data={gdpMedals.length ? gdpMedals : []} />
 
               <div className="mt-6 bg-green-50 rounded-xl p-5 border border-green-200">
                 <div className="flex items-start space-x-3">
@@ -1056,12 +1291,13 @@ const App = () => {
                 </h2>
                 <p className="text-sm text-gray-500 mt-1">Distribution géographique des performances olympiques - D3.js</p>
               </div>
-              
-              <D3WorldMap data={mockMedalsData} />
+
+              <D3WorldMap data={countryLocations.length ? countryLocations : []} />
+
             </div>
 
             <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-              {mockMedalsData.slice(0, 5).map((country, i) => (
+              {countryLocations.map((country, i) => (
                 <div key={i} className="bg-white rounded-xl shadow-sm border border-gray-200 p-5 text-center hover:shadow-md transition-all cursor-pointer">
                   <div className="text-4xl mb-3">{country.flag}</div>
                   <p className="font-bold text-gray-900 text-sm">{country.country}</p>
@@ -1074,6 +1310,12 @@ const App = () => {
             </div>
           </div>
         )}
+        {loading && (
+          <div className="flex justify-center items-center py-20">
+            <p className="text-gray-500">Chargement des données en cours...</p>
+          </div>
+        )}
+
       </main>
 
       {/* Modal détails pays */}
@@ -1088,8 +1330,8 @@ const App = () => {
                   <p className="text-gray-500">Détails des performances</p>
                 </div>
               </div>
-              <button 
-                onClick={() => setSelectedCountry(null)} 
+              <button
+                onClick={() => setSelectedCountry(null)}
                 className="text-gray-400 hover:text-gray-600 transition-colors text-3xl font-light w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100"
               >
                 ×
@@ -1119,13 +1361,26 @@ const App = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <p className="text-sm text-gray-600 mb-1">PIB</p>
-                  <p className="font-bold text-gray-900">{selectedCountry.gdp} Mds $</p>
+                  {selectedCountry.gdp
+                    ? `${Intl.NumberFormat('fr-FR', {
+                      minimumFractionDigits: 1,
+                      maximumFractionDigits: 2,
+                    }).format(selectedCountry.gdp)} Mds $`
+                    : "—"}
                 </div>
                 <div>
                   <p className="text-sm text-gray-600 mb-1">Performance</p>
-                  <span className="inline-block bg-green-100 text-green-700 px-3 py-1 rounded-full text-sm font-medium">
-                    Excellente
-                  </span>
+                  {(() => {
+                    const badge = getPerformanceBadge(selectedCountry.gdp);
+                    return (
+                      <span
+                        className={`inline-block ${badge.color} px-3 py-1 rounded-full text-sm font-medium`}
+                      >
+                        {badge.emoji} {badge.label}
+                      </span>
+                    );
+                  })()}
+
                 </div>
               </div>
             </div>

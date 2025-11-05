@@ -1,0 +1,16 @@
+{
+  "name": "olympics-backend",
+  "version": "1.0.0",
+  "description": "Simple Express backend to serve Olympics DB data",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^1.0.0",
+    "express": "^4.18.2",
+    "pg": "^8.11.0"
+  }
+}
