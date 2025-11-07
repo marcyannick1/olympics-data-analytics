@@ -11,6 +11,8 @@ import Overview from './pages/Overview';
 import Predictions from './pages/Predictions';
 import Analysis from './pages/Analysis';
 import Map from './pages/Map';
+import 'leaflet/dist/leaflet.css';
+
 
 // Fonctions API
 import {
@@ -72,6 +74,10 @@ const App = () => {
         setHistoryData(hist);
         setGlobalStats(stats);
         console.log('✅ Données principales chargées avec succès');
+        console.log('🔄 Fetching GDP vs Medals...');
+        gdp.forEach(country => {
+          console.log('noc', country.noc);
+        });
       } catch (err) {
         console.error('❌ Erreur lors du chargement des données', err);
       } finally {
