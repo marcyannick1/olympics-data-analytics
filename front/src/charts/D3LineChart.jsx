@@ -1,0 +1,109 @@
+import React, { useEffect, useRef } from 'react';
+import * as d3 from 'd3';
+
+const D3LineChart = ({ data }) => {
+  const svgRef = useRef();
+
+  useEffect(() => {
+    if (!data || data.length === 0) return;
+
+    const svg = d3.select(svgRef.current);
+    svg.selectAll('*').remove();
+
+    const width = 800;
+    const height = 300;
+    const margin = { top: 20, right: 30, bottom: 40, left: 50 };
+
+    const x = d3.scaleLinear()
+      .domain(d3.extent(data, d => d.year))
+      .range([margin.left, width - margin.right]);
+
+    const y = d3.scaleLinear()
+      .domain([0, d3.max(data, d => d.medals) * 1.1])
+      .range([height - margin.bottom, margin.top]);
+
+    const line = d3.line()
+      .x(d => x(d.year))
+      .y(d => y(d.medals))
+      .curve(d3.curveMonotoneX);
+
+    const area = d3.area()
+      .x(d => x(d.year))
+      .y0(height - margin.bottom)
+      .y1(d => y(d.medals))
+      .curve(d3.curveMonotoneX);
+
+    // Gradient
+    const defs = svg.append('defs');
+    const gradient = defs.append('linearGradient')
+      .attr('id', 'areaGradient')
+      .attr('x1', '0%')
+      .attr('y1', '0%')
+      .attr('x2', '0%')
+      .attr('y2', '100%');
+
+    gradient.append('stop')
+      .attr('offset', '0%')
+      .attr('stop-color', '#3b82f6')
+      .attr('stop-opacity', 0.3);
+
+    gradient.append('stop')
+      .attr('offset', '100%')
+      .attr('stop-color', '#3b82f6')
+      .attr('stop-opacity', 0);
+
+    // Area + line
+    svg.append('path').datum(data).attr('fill', 'url(#areaGradient)').attr('d', area);
+    svg.append('path').datum(data).attr('fill', 'none').attr('stroke', '#3b82f6').attr('stroke-width', 3).attr('d', line);
+
+    // Points
+    svg.selectAll('circle')
+      .data(data)
+      .join('circle')
+      .attr('cx', d => x(d.year))
+      .attr('cy', d => y(d.medals))
+      .attr('r', 6)
+      .attr('fill', '#3b82f6')
+      .attr('stroke', '#fff')
+      .attr('stroke-width', 2)
+      .on('mouseenter', function (event, d) {
+        d3.select(this).transition().duration(200).attr('r', 8);
+        svg.append('text')
+          .attr('class', 'tooltip')
+          .attr('x', x(d.year))
+          .attr('y', y(d.medals) - 15)
+          .attr('text-anchor', 'middle')
+          .attr('fill', '#1f2937')
+          .attr('font-size', '14px')
+          .attr('font-weight', 'bold')
+          .text(`${d.medals} médailles`);
+      })
+      .on('mouseleave', function () {
+        d3.select(this).transition().duration(200).attr('r', 6);
+        svg.selectAll('.tooltip').remove();
+      });
+
+    // Axes
+    svg.append('g')
+      .attr('transform', `translate(0,${height - margin.bottom})`)
+      .call(d3.axisBottom(x).tickFormat(d3.format('d')).ticks(6))
+      .selectAll('text')
+      .attr('fill', '#6b7280')
+      .style('font-size', '12px');
+
+    svg.append('g')
+      .attr('transform', `translate(${margin.left},0)`)
+      .call(d3.axisLeft(y).ticks(5))
+      .selectAll('text')
+      .attr('fill', '#6b7280')
+      .style('font-size', '12px');
+  }, [data]);
+
+  return (
+    <div className="w-full overflow-x-auto">
+      <svg ref={svgRef} width="100%" height="300" viewBox="0 0 800 300" />
+    </div>
+  );
+};
+
+export default D3LineChart;
