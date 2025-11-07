@@ -1,9 +1,0 @@
-pandas
-sqlalchemy
-psycopg2
-matplotlib
-seaborn
-jupyter
-sklearn
-requests
-beautifulsoup4
