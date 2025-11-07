@@ -1,8 +1,8 @@
 import React from 'react';
-import { Globe } from 'lucide-react';
+import {Globe} from 'lucide-react';
 import D3WorldMap from '../charts/D3WorldMap';
 
-const Map = ({ mockMedalsData }) => {
+const Map = ({ countryLocations = [] }) => {
   return (
     <div className="space-y-6">
       <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
@@ -12,15 +12,15 @@ const Map = ({ mockMedalsData }) => {
             Carte mondiale des médailles
           </h2>
           <p className="text-sm text-gray-500 mt-1">
-            Distribution géographique des performances olympiques - Visualisation D3.js
+            Distribution géographique des performances olympiques - D3.js
           </p>
         </div>
 
-        <D3WorldMap data={mockMedalsData} />
+        <D3WorldMap data={countryLocations} />
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        {mockMedalsData.slice(0, 5).map((country, i) => (
+        {countryLocations.map((country, i) => (
           <div
             key={i}
             className="bg-white rounded-xl shadow-sm border border-gray-200 p-5 text-center hover:shadow-md transition-all cursor-pointer"

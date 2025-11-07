@@ -19,6 +19,7 @@ const Predictions = () => {
             flag: getFlagEmoji(p.country),
           }));
           setPredictions(formatted);
+          console.log(predictions)
         }
       } catch (err) {
         console.error('Erreur lors du chargement des prédictions :', err);

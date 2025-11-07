@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { BarChart3, Globe, Medal, TrendingUp, Brain } from 'lucide-react';
 
 // Composants
@@ -12,26 +12,99 @@ import Predictions from './pages/Predictions';
 import Analysis from './pages/Analysis';
 import Map from './pages/Map';
 
-// Données mockées
+// Fonctions API
 import {
-  mockMedalsData,
-  mockPredictions,
-  historicalData,
-  userData,
-  notifications,
-} from './data/mockData';
+  fetchTopMedals,
+  fetchGDPvsMedals,
+  fetchCountriesLocations,
+  fetchHistoryMedals,
+  fetchHosts,
+  fetchGlobalStats,
+} from './api';
+
+// Données utilisateur & notifications (statiques)
+import { userData, notifications } from './data/mockData';
 
 const App = () => {
+  // --- États de base ---
   const [activeTab, setActiveTab] = useState('overview');
   const [selectedCountry, setSelectedCountry] = useState(null);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
 
-  // Actions filtres (placeholder)
+  // --- Données dynamiques ---
+  const [medalsData, setMedalsData] = useState([]);
+  const [gdpMedals, setGdpMedals] = useState([]);
+  const [countryLocations, setCountryLocations] = useState([]);
+  const [historyData, setHistoryData] = useState([]);
+  const [hosts, setHosts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [globalStats, setGlobalStats] = useState({
+    countries: 0,
+    totalMedals: 0,
+    editions: 0,
+  });
+
+  // --- Filtres globaux ---
+  const [filters, setFilters] = useState({
+    season: 'Summer',
+    gameSlug: '',
+    medalType: 'ALL',
+    limit: 10,
+  });
+
+  // --- Chargement initial des données ---
+  useEffect(() => {
+    async function loadData() {
+      setLoading(true);
+      try {
+        const [top, gdp, loc, hist, stats] = await Promise.all([
+          fetchTopMedals(10),
+          fetchGDPvsMedals(),
+          fetchCountriesLocations(),
+          fetchHistoryMedals('USA'),
+          fetchGlobalStats(),
+        ]);
+        setMedalsData(top);
+        setGdpMedals(gdp);
+        setCountryLocations(loc);
+        setHistoryData(hist);
+        setGlobalStats(stats);
+        console.log('✅ Données principales chargées avec succès');
+      } catch (err) {
+        console.error('❌ Erreur lors du chargement des données', err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadData();
+  }, []);
+
+  // --- Chargement des éditions des JO ---
+  useEffect(() => {
+    (async () => {
+      try {
+        const all = await fetchHosts();
+        setHosts(all);
+        const defaultHost =
+          all.find(h => h.game_season === 'Summer') || all[0];
+        setFilters(f => ({
+          ...f,
+          gameSlug: defaultHost?.game_slug || '',
+          season: defaultHost?.game_season || 'Summer',
+        }));
+      } catch (e) {
+        console.error('❌ Erreur lors du chargement des hosts', e);
+      }
+    })();
+  }, []);
+
+  // --- Gestion des filtres ---
   const handleApplyFilters = () => console.log('Filtres appliqués');
   const handleResetFilters = () => console.log('Filtres réinitialisés');
 
+  // --- Tabs principales ---
   const tabs = [
     { id: 'overview', icon: BarChart3, label: "Vue d'ensemble" },
     { id: 'predictions', icon: Brain, label: 'Prédictions IA' },
@@ -86,24 +159,24 @@ const App = () => {
 
       {/* Contenu principal */}
       <main className="max-w-7xl mx-auto px-6 py-8">
-        {activeTab === 'overview' && (
-          <Overview
-            mockMedalsData={mockMedalsData}
-            historicalData={historicalData}
-            setSelectedCountry={setSelectedCountry}
-          />
-        )}
+        {loading ? (
+          <div className="text-center text-gray-500 py-12">Chargement des données...</div>
+        ) : (
+          <>
+            {activeTab === 'overview' && (
+              <Overview
+                medalsData={medalsData}
+                historyData={historyData}
+                hosts={hosts}
+                filters={filters}
+                setSelectedCountry={setSelectedCountry}
+              />
+            )}
 
-        {activeTab === 'predictions' && (
-          <Predictions mockPredictions={mockPredictions} />
-        )}
-
-        {activeTab === 'analysis' && (
-          <Analysis mockMedalsData={mockMedalsData} />
-        )}
-
-        {activeTab === 'map' && (
-          <Map mockMedalsData={mockMedalsData} />
+            {activeTab === 'predictions' && <Predictions />}
+            {activeTab === 'analysis' && <Analysis medalsData={medalsData} />}
+            {activeTab === 'map' && <Map medalsData={countryLocations} />}
+          </>
         )}
       </main>
 
@@ -121,7 +194,7 @@ const App = () => {
           <p className="text-sm text-gray-600">JO Analytics © 2024</p>
           <p className="text-xs text-gray-400 mt-1">
             Projet réalisé par Jokast, Rufus & Yannick • Données 1896–2022 •
-            Visualisations: D3.js
+            Visualisations : D3.js
           </p>
         </div>
       </footer>
