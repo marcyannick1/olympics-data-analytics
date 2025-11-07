@@ -112,7 +112,10 @@ Permettre une **analyse approfondie des performances olympiques** passées et fu
 | **Base de données**         | PostgreSQL                                   |
 | **IA**                      | Python, FastAPI, Scikit-learn                        |
 | **Authentification**        | JWT                                                  |
-| **Hébergement (optionnel)** | Render / Vercel / Railway                            |
+| **Outils de versioning** | Git                            |
+| **Communication** | Teams, Discord                            |
+| **Hébergement (optionnel)** | Vercel                            |
+| **Autres** | Trello, Canva...                            |
 
 ---
 
