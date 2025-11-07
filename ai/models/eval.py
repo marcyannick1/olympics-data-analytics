@@ -78,11 +78,11 @@ def evaluate_clustering(X_scaled, labels, inertias=None):
 # -----------------------------
 if __name__ == "__main__":
     # Exemple régression
-    y_true = [10, 15, 20, 25]
-    y_pred = [11, 14, 21, 27]
+    y_true = [126, 91, 65, 64]
+    y_pred = [121, 102, 67, 35]
     print("Régression:", evaluate_regression(y_true, y_pred))
 
     # Exemple classification
-    y_true = [1, 0, 1, 0, 1, 1]
-    y_pred = [1, 0, 0, 0, 1, 1]
-    print("Classification:", evaluate_classification(y_true, y_pred))
+    # y_true = [1, 0, 1, 0, 1, 1]
+    # y_pred = [1, 0, 0, 0, 1, 1]
+    # print("Classification:", evaluate_classification(y_true, y_pred))
