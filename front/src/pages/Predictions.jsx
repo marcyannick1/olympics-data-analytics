@@ -1,7 +1,56 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Brain, Activity } from 'lucide-react';
 
-const Predictions = ({ mockPredictions }) => {
+const Predictions = () => {
+  const [predictions, setPredictions] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchPredictions = async () => {
+      try {
+        const response = await fetch('http://localhost:5001/predict/top25');
+        const data = await response.json();
+        if (data && data.predictions) {
+          // Transformation pour correspondre à l'ancien format mock
+          const formatted = data.predictions.map((p) => ({
+            country: p.country,
+            predicted: p.prediction.total,
+            confidence: Math.floor(Math.random() * 20) + 80, // valeur simulée
+            flag: getFlagEmoji(p.country),
+          }));
+          setPredictions(formatted);
+        }
+      } catch (err) {
+        console.error('Erreur lors du chargement des prédictions :', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchPredictions();
+  }, []);
+
+  const getFlagEmoji = (country) => {
+    const flags = {
+      'United States': '🇺🇸',
+      'China': '🇨🇳',
+      'France': '🇫🇷',
+      'Japan': '🇯🇵',
+      'Germany': '🇩🇪',
+      'United Kingdom': '🇬🇧',
+      'Canada': '🇨🇦',
+      'Italy': '🇮🇹',
+      'Australia': '🇦🇺',
+      'Brazil': '🇧🇷',
+      'Korea': '🇰🇷',
+      'Spain': '🇪🇸',
+    };
+    return flags[country] || '🏳️';
+  };
+
+  if (loading) {
+    return <p className="text-center text-gray-600">Chargement des prédictions...</p>;
+  }
+
   return (
     <div className="space-y-6">
       <div className="bg-gradient-to-br from-purple-50 to-blue-50 rounded-2xl shadow-sm border border-purple-200 p-6">
@@ -19,7 +68,7 @@ const Predictions = ({ mockPredictions }) => {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {mockPredictions.map((pred, index) => (
+        {predictions.map((pred, index) => (
           <div
             key={index}
             className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 hover:shadow-md transition-all"

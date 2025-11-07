@@ -6,10 +6,13 @@ import pandas as pd
 import numpy as np
 import requests
 from datetime import datetime
+from flask import Flask
+from flask_cors import CORS
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 app = Flask(__name__)
+CORS(app)
 
 # Variables globales pour les modèles
 medal_predictor = None
